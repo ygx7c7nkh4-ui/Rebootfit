@@ -780,6 +780,203 @@
                             </div>
                         )}
 
+                        {activeTab === 'record' && (
+                            <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
+                                <h2 className="text-xl font-bold text-slate-800 mb-6 px-1">記録</h2>
+
+                                <div className="bg-white rounded-3xl p-5 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50 mb-6">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <div className="flex items-center gap-1">
+                                            <button onClick={() => shiftCalendar(-1)} className="p-1.5 hover:bg-slate-50 rounded-full active:scale-95 transition-all text-slate-400 hover:text-slate-600">
+                                                <Icon name="ChevronLeft" size={20} />
+                                            </button>
+                                            <h3 className="font-bold text-slate-800 text-[15px] w-20 text-center">
+                                                {calendarView === 'month' 
+                                                    ? `${currentCalendarDate.getFullYear()}年${currentCalendarDate.getMonth() + 1}月`
+                                                    : `${currentCalendarDate.getMonth() + 1}月`}
+                                            </h3>
+                                            <button onClick={() => shiftCalendar(1)} className="p-1.5 hover:bg-slate-50 rounded-full active:scale-95 transition-all text-slate-400 hover:text-slate-600">
+                                                <Icon name="ChevronRight" size={20} />
+                                            </button>
+                                        </div>
+                                        <div className="flex bg-slate-50 p-1 rounded-xl">
+                                            <button 
+                                                onClick={() => setCalendarView('month')}
+                                                className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${calendarView === 'month' ? 'bg-white text-teal-600 shadow-[0_1px_3px_rgba(0,0,0,0.05)]' : 'text-slate-400 hover:text-slate-600'}`}
+                                            >
+                                                月
+                                            </button>
+                                            <button 
+                                                onClick={() => setCalendarView('week')}
+                                                className={`px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all ${calendarView === 'week' ? 'bg-white text-teal-600 shadow-[0_1px_3px_rgba(0,0,0,0.05)]' : 'text-slate-400 hover:text-slate-600'}`}
+                                            >
+                                                週
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {calendarView === 'month' ? (
+                                        <>
+                                            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-400 mb-2">
+                                                {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => (
+                                                    <div key={d} className={i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : ''}>{d}</div>
+                                                ))}
+                                            </div>
+                                            <div className="grid grid-cols-7 gap-y-2 gap-x-1">
+                                                {getDaysInMonth(currentCalendarDate).map((date, idx) => {
+                                                    if (!date) return <div key={`empty-${idx}`} />;
+                                                    
+                                                    const dateStr = formatDateString(date);
+                                                    const isSelected = formatDateString(selectedDate) === dateStr;
+                                                    const isToday = formatDateString(new Date()) === dateStr;
+                                                    const data = historyData[dateStr];
+                                                    
+                                                    return (
+                                                        <button 
+                                                            key={dateStr}
+                                                            onClick={() => setSelectedDate(date)}
+                                                            className={`aspect-square flex flex-col items-center justify-center rounded-full relative transition-all mx-auto w-10 h-10
+                                                                ${isSelected ? 'bg-teal-500 text-white shadow-md shadow-teal-500/20' : 'text-slate-700 hover:bg-slate-50'}
+                                                                ${isToday && !isSelected ? 'border-2 border-teal-500 font-bold' : ''}
+                                                            `}
+                                                        >
+                                                            <span className={`text-[13px] ${isSelected ? 'font-bold' : 'font-medium'}`}>{date.getDate()}</span>
+                                                            {data?.isPerfect && (
+                                                                <div className={`w-1 h-1 rounded-full absolute bottom-1.5 ${isSelected ? 'bg-white' : 'bg-orange-400'}`}></div>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="relative mt-4 mb-2 animate-in fade-in duration-300">
+                                            <div className="absolute left-[4.125rem] top-3 bottom-6 w-0.5 bg-gray-100"></div>
+                                            
+                                            {getDaysInWeek(currentCalendarDate).map((date, idx) => {
+                                                const dateStr = formatDateString(date);
+                                                const data = historyData[dateStr];
+                                                const isToday = formatDateString(new Date()) === dateStr;
+                                                const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                                                
+                                                return (
+                                                    <div key={dateStr} className="flex items-start mb-4 relative">
+                                                        <div className="w-14 shrink-0 pt-1 text-right pr-3">
+                                                            <p className={`text-[12px] font-bold ${isToday ? 'text-teal-600' : 'text-slate-500'}`}>
+                                                                {date.getMonth() + 1}/{date.getDate()}
+                                                            </p>
+                                                            <p className={`text-[10px] font-bold ${isToday ? 'text-teal-500' : 'text-slate-400'}`}>
+                                                                {dayNames[date.getDay()]}
+                                                            </p>
+                                                        </div>
+                                                        
+                                                        <div className="w-5 shrink-0 flex justify-center pt-1.5 relative z-10">
+                                                            <div className={`w-3 h-3 rounded-full ring-[4px] ring-white ${data?.isPerfect ? 'bg-teal-400' : 'bg-gray-200'}`}></div>
+                                                        </div>
+                                                        
+                                                        <div className="flex-1 pl-4 pb-1">
+                                                            {data ? (
+                                                                <div className="bg-slate-50 rounded-2xl p-3 border border-gray-100">
+                                                                    <span className="inline-block text-[10px] font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full mb-2">
+                                                                        目標達成 🎉
+                                                                    </span>
+                                                                    <div className="space-y-2 mt-1">
+                                                                        {data.menu.map((m, i) => (
+                                                                            <div key={m.id || i} className="flex items-center gap-2">
+                                                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${m.iconBg || 'bg-gray-100'} ${m.iconColor || 'text-gray-600'}`}>
+                                                                                    <Icon name={m.icon || 'Circle'} size={12} />
+                                                                                </div>
+                                                                                <p className="text-[12px] font-bold text-slate-700 truncate flex items-center gap-1.5">
+                                                                                    {m.title}
+                                                                                    {m.videoUrl && (
+                                                                                        <a href={m.videoUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                                                                                            <Icon name="PlayCircle" size={12} className="text-red-500 hover:text-red-600" />
+                                                                                        </a>
+                                                                                    )}
+                                                                                </p>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="pt-1.5">
+                                                                    <p className="text-[12px] text-slate-400 font-medium">記録なし</p>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {calendarView === 'month' && (
+                                    <div className="bg-white rounded-3xl p-5 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50 min-h-[120px] animate-in fade-in duration-300">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                                <Icon name="CalendarDays" size={18} className="text-teal-500" />
+                                                {selectedDate.getMonth() + 1}月{selectedDate.getDate()}日の記録
+                                            </h4>
+                                            {historyData[formatDateString(selectedDate)]?.isPerfect && (
+                                                <span className="text-[10px] font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded-full flex items-center gap-1">
+                                                    目標達成 🎉
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {historyData[formatDateString(selectedDate)] ? (
+                                            <div className="bg-white rounded-2xl overflow-hidden border border-gray-50/50 shadow-sm">
+                                                {historyData[formatDateString(selectedDate)].menu.map((item, index) => (
+                                                    <div 
+                                                        key={item.id || index} 
+                                                        className={`flex items-center p-3 border-b border-gray-50 last:border-0 ${item.completed ? 'bg-teal-50/40' : 'bg-white'}`}
+                                                    >
+                                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center mr-3 shrink-0 ${item.iconBg || 'bg-gray-100'} ${item.iconColor || 'text-gray-600'}`}>
+                                                            <Icon name={item.icon || 'Circle'} size={18} />
+                                                        </div>
+                                                        <div className="flex-1 pr-2">
+                                                            <h4 className={`font-bold text-[14px] mb-0.5 flex items-center gap-2 ${item.completed ? 'text-teal-900' : 'text-slate-800'}`}>
+                                                                {item.title}
+                                                                {item.videoUrl && (
+                                                                    <a 
+                                                                        href={item.videoUrl} 
+                                                                        target="_blank" 
+                                                                        rel="noopener noreferrer" 
+                                                                        onClick={(e) => e.stopPropagation()} 
+                                                                        className={`active:scale-95 ${item.completed ? 'text-teal-600 hover:text-teal-700' : 'text-red-500 hover:text-red-600'}`}
+                                                                        title="動画を見る"
+                                                                    >
+                                                                        <Icon name="PlayCircle" size={16} />
+                                                                    </a>
+                                                                )}
+                                                            </h4>
+                                                            <p className={`text-[11px] ${item.completed ? 'text-teal-700' : 'text-slate-500'}`}>{item.desc}</p>
+                                                        </div>
+                                                        <div className="shrink-0 text-teal-500">
+                                                            {item.completed ? (
+                                                                <div className="relative w-[22px] h-[22px]">
+                                                                    <Icon name="Circle" className="text-blue-500 fill-blue-500 absolute top-0 left-0" size={22} />
+                                                                    <Icon name="CheckCircle2" className="text-white absolute top-0 left-0" size={22} />
+                                                                </div>
+                                                            ) : (
+                                                                <Icon name="Circle" size={22} className="text-gray-300" />
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-6 text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
+                                                <span className="text-2xl opacity-50">🌱</span>
+                                                この日の記録はありません
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {activeTab === 'settings' && (
                             <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
                                 <h2 className="text-xl font-bold text-slate-800 mb-6 px-1">設定</h2>
