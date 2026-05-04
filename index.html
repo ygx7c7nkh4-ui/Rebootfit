@@ -36,12 +36,31 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global variables with safety checks
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // ============================================================================
+        // 【重要】ブラウザを閉じてもデータを残すための設定
+        // ご自身のFirebaseプロジェクトを作成し、以下の設定を書き換えてください。
+        // ============================================================================
+        const userFirebaseConfig = {
+            apiKey: "AIzaSyCc1nkB7CDVU56EU2me912aSaudO39Y0pg",
+  authDomain: "reboot-fit.firebaseapp.com",
+  projectId: "reboot-fit",
+  storageBucket: "reboot-fit.firebasestorage.app",
+  messagingSenderId: "1038068068280",
+  appId: "1:1038068068280:web:52b71a514713b32035e94d",
+  measurementId: "G-HF070T2HWZ"
+        };
+        // ============================================================================
+
+        // プレビュー環境か、ローカル環境かを判定して設定を切り替え
+        const isPreviewEnv = typeof __firebase_config !== 'undefined';
+        const firebaseConfig = isPreviewEnv ? JSON.parse(__firebase_config) : userFirebaseConfig;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'reboot-fit-local-app';
 
         let auth, db;
-        if (firebaseConfig) {
+        // 初期設定キーのままの場合はFirebaseを初期化しない（エラー防止）
+        const isFirebaseConfigured = firebaseConfig && firebaseConfig.apiKey !== "YOUR_API_KEY";
+        
+        if (isFirebaseConfigured) {
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
@@ -536,9 +555,22 @@
                 );
             };
 
+            // 未設定アラートの表示（テストモード）
+            const renderTestModeAlert = () => {
+                if (isFirebaseConfigured) return null;
+                return (
+                    <div className="bg-red-50 px-4 py-2.5 border-b border-red-100 flex items-center justify-center text-center z-50 relative">
+                        <p className="text-[10px] sm:text-xs text-red-600 font-bold leading-tight">
+                            ⚠️ 現在テストモードです（ブラウザを閉じるとデータは消えます）<br/>
+                            <span className="font-normal text-red-500 text-[9px] sm:text-[10px]">データを残すには、コード上部のFirebase設定を行ってください。</span>
+                        </p>
+                    </div>
+                );
+            };
+
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gradient-to-b from-teal-50/30 to-white text-slate-800 font-sans">
-                    
+                    {renderTestModeAlert()}
                     <main className="flex-1 overflow-y-auto pb-24">
                         
                         {activeTab === 'home' && (
