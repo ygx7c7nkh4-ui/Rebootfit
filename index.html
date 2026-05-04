@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Re:boot Fit - 再起動アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+        body { 
+            font-family: 'Noto Sans JP', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            background-color: #f9fafb;
+        }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        select { -webkit-appearance: none; appearance: none; }
+        .animate-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        /* アイコンコンテナ内の調整 */
+        .icon-wrapper svg { display: block; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        const { useState, useEffect, useRef } = React;
+
+        // Firebase ESM Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables with safety checks
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let auth, db;
+        if (firebaseConfig) {
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+
+        /**
+         * 確実にアイコンを表示するためのコンポーネント
+         */
+        const Icon = ({ name, size = 24, className = "", strokeWidth = 2 }) => {
+            const iconRef = useRef(null);
+
+            useEffect(() => {
+                const renderIcon = () => {
+                    if (iconRef.current && window.lucide) {
+                        iconRef.current.innerHTML = '';
+                        const kebabName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+                        
+                        const iTag = document.createElement('i');
+                        iTag.setAttribute('data-lucide', kebabName);
+                        iconRef.current.appendChild(iTag);
+
+                        window.lucide.createIcons({
+                            root: iconRef.current,
+                            attrs: {
+                                width: size,
+                                height: size,
+                                class: className,
+                                'stroke-width': strokeWidth
+                            }
+                        });
+                    }
+                };
+
+                renderIcon();
+                const timer = setTimeout(renderIcon, 150);
+                return () => clearTimeout(timer);
+            }, [name, size, className, strokeWidth]);
+
+            return (
+                <span 
+                    ref={iconRef} 
+                    className="icon-wrapper inline-flex items-center justify-center leading-none" 
+                    style={{ width: size, height: size }} 
+                />
+            );
+        };
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('home');
+            const [user, setUser] = useState(null);
+
+            // 設定用のステート
+            const [userName, setUserName] = useState('あなた');
+            const [isEditingName, setIsEditingName] = useState(false);
+            const [gender, setGender] = useState('男性');
+            const [age, setAge] = useState('30代');
+            const [bodyType, setBodyType] = useState('痩せ型');
+            const [exerciseHabit, setExerciseHabit] = useState('週0回');
+
+            // Firebase認証の設定
+            useEffect(() => {
+                if (!auth) return;
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("認証エラー:", error);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            // クラウドから設定を読み込む
+            useEffect(() => {
+                if (!user || !db) return;
+                const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+                
+                const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.userName) setUserName(data.userName);
+                        if (data.gender) setGender(data.gender);
+                        if (data.age) setAge(data.age);
+                        if (data.bodyType) setBodyType(data.bodyType);
+                        if (data.exerciseHabit) setExerciseHabit(data.exerciseHabit);
+                        if (data.streak !== undefined) setStreak(data.streak);
+                        if (data.totalTrainingTime !== undefined) setTotalTrainingTime(data.totalTrainingTime);
+                        if (data.lastCompletedDate) setLastCompletedDate(data.lastCompletedDate);
+                        if (data.todaysMenu) setTodaysMenu(data.todaysMenu);
+                        if (data.historyData) setHistoryData(data.historyData);
+                    } else {
+                        // ドキュメントが存在しない（初回起動時）は設定タブへ案内
+                        setActiveTab('settings');
+                        
+                        // 初期メニューを作成して保存
+                        const defaultMenu = [
+                            { id: 1, title: 'ラジオ体操（第1）', desc: '4分 (全身の準備運動)', duration: 4, videoUrl: 'https://youtu.be/SGPBSqxKGAc?si=6Y0pUTFkz26dNTWd', completed: false, icon: 'Activity', iconBg: 'bg-green-50', iconColor: 'text-green-500' },
+                            { id: 2, title: '壁腕立て伏せ', desc: '5回×3セット (3分)', duration: 3, videoUrl: 'https://www.youtube.com/results?search_query=%E5%A3%81%E8%85%95%E7%AB%8B%E3%81%A6%E4%BC%8F%E3%81%9B+%E3%82%84%E3%82%8A%E6%96%B9', completed: false, icon: 'PersonStanding', iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+                            { id: 3, title: 'ストレッチ', desc: '柔軟性アップ 5分', duration: 5, videoUrl: 'https://www.youtube.com/results?search_query=%E5%85%A8%E8%BA%AB%E3%82%B9%E3%83%88%E3%83%AC%E3%83%83%E3%83%81', completed: false, icon: 'PersonStanding', iconBg: 'bg-purple-50', iconColor: 'text-purple-500' }
+                        ];
+                        setTodaysMenu(defaultMenu);
+                        saveData({ 
+                            todaysMenu: defaultMenu, 
+                            streak: 0, 
+                            totalTrainingTime: 0,
+                            userName: 'あなた' 
+                        });
+                    }
+                }, (error) => {
+                    console.error("データ取得エラー:", error);
+                });
+
+                return () => unsubscribe();
+            }, [user]);
+
+            // 設定をクラウドに保存する関数
+            const saveSetting = async (key, value) => {
+                if (!user || !db) return;
+                const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+                try {
+                    await setDoc(docRef, { [key]: value }, { merge: true });
+                } catch (error) {
+                    console.error("保存エラー:", error);
+                }
+            };
+            
+            const saveData = async (data) => {
+                if (!user || !db) return;
+                const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+                try {
+                    await setDoc(docRef, data, { merge: true });
+                } catch (error) {
+                    console.error("保存エラー:", error);
+                }
+            };
+
+            // 各項目の変更ハンドラ（ステート更新と同時に保存）
+            const handleNameSave = () => {
+                setIsEditingName(false);
+                saveSetting('userName', userName);
+            };
+            const handleGenderChange = (val) => { setGender(val); saveSetting('gender', val); };
+            const handleAgeChange = (val) => { setAge(val); saveSetting('age', val); };
+            const handleBodyTypeChange = (val) => { setBodyType(val); saveSetting('bodyType', val); };
+            const handleExerciseHabitChange = (val) => { setExerciseHabit(val); saveSetting('exerciseHabit', val); };
+
+            // 記録ステート（0からスタート）
+            const [streak, setStreak] = useState(0);
+            const [totalTrainingTime, setTotalTrainingTime] = useState(0);
+            const [lastCompletedDate, setLastCompletedDate] = useState(null);
+
+            // カレンダー・履歴用のステート
+            const [calendarView, setCalendarView] = useState('month');
+            const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
+            const [selectedDate, setSelectedDate] = useState(new Date());
+            const [historyData, setHistoryData] = useState({});
+
+            // 今日のメニューのステート管理（初期状態）
+            const [todaysMenu, setTodaysMenu] = useState([]);
+
+            // 今日の完了処理（連続達成日数のカウントアップ）
+            const handleCompleteDaily = () => {
+                if (completedCount < totalCount || totalCount === 0) return;
+
+                const today = new Date().toDateString();
+                if (lastCompletedDate === today) return; 
+
+                // 連続日数の計算
+                let newStreak = streak;
+                if (lastCompletedDate) {
+                    const lastDate = new Date(lastCompletedDate);
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    
+                    if (lastDate.toDateString() === yesterday.toDateString()) {
+                        newStreak += 1;
+                    } else {
+                        newStreak = 1;
+                    }
+                } else {
+                    newStreak = 1; 
+                }
+
+                // 今日のトレーニング時間を合算
+                const todaysTotalTime = todaysMenu.reduce((sum, item) => sum + (item.duration || 0), 0);
+                const newTotalTime = totalTrainingTime + todaysTotalTime;
+
+                setStreak(newStreak);
+                setTotalTrainingTime(newTotalTime);
+                setLastCompletedDate(today);
+                
+                // カレンダーのデータも更新
+                const dateStr = formatDateString(new Date());
+                const updatedHistory = {
+                    ...historyData,
+                    [dateStr]: { isPerfect: true, menu: todaysMenu }
+                };
+                setHistoryData(updatedHistory);
+
+                saveData({
+                    streak: newStreak,
+                    totalTrainingTime: newTotalTime,
+                    lastCompletedDate: today,
+                    historyData: updatedHistory
+                });
+            };
+
+            // メニュー提案用のステート
+            const [trainingTime, setTrainingTime] = useState(15);
+            const [trainingLocation, setTrainingLocation] = useState('室内');
+            const [suggestedMenu, setSuggestedMenu] = useState([]);
+
+            // メニューを生成するロジック
+            const handleGenerateMenu = () => {
+                const homeExercises = [
+                    { title: 'スクワット', desc: '下半身の強化', type: 'reps', baseCount: 15, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%B9%E3%82%AF%E3%83%AF%E3%83%83%E3%83%88+%E6%AD%A3%E3%81%97%E3%81%84%E3%82%84%E3%82%8A%E6%96%B9', icon: 'PersonStanding', bg: 'bg-orange-50', color: 'text-orange-500' },
+                    { title: 'プランク', desc: '体幹トレーニング', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%83%97%E3%83%A9%E3%83%B3%E3%82%AF+%E6%AD%A3%E3%81%97%E3%81%84%E3%82%84%E3%82%8A%E6%96%B9', icon: 'Activity', bg: 'bg-teal-50', color: 'text-teal-500' },
+                    { title: '壁腕立て伏せ', desc: '上半身の強化', type: 'reps', baseCount: 10, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E5%A3%81%E8%85%95%E7%AB%8B%E3%81%A6%E4%BC%8F%E3%81%9B+%E3%82%84%E3%82%8A%E6%96%B9', icon: 'PersonStanding', bg: 'bg-blue-50', color: 'text-blue-500' },
+                    { title: 'ラジオ体操', desc: '全身の準備運動', type: 'time', fixedDuration: 4, videoUrl: 'https://youtu.be/SGPBSqxKGAc?si=6Y0pUTFkz26dNTWd', icon: 'Activity', bg: 'bg-green-50', color: 'text-green-500' },
+                    { title: 'ストレッチ', desc: '柔軟性アップ', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E5%85%A8%E8%BA%AB%E3%82%B9%E3%83%88%E3%83%AC%E3%83%83%E3%83%81', icon: 'PersonStanding', bg: 'bg-purple-50', color: 'text-purple-500' },
+                ];
+                
+                const outExercises = [
+                    { title: 'ウォーキング', desc: '有酸素運動', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%A6%E3%82%A9%E3%83%BC%E3%82%AD%E3%83%B3%E3%82%B0+%E3%83%95%E3%82%A9%E3%83%BC%E3%83%A0', icon: 'Activity', bg: 'bg-blue-50', color: 'text-blue-500' },
+                    { title: 'ジョギング', desc: '脂肪燃焼', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%B8%E3%83%A7%E3%82%AE%E3%83%B3%E3%82%B0+%E5%88%9D%E5%BF%83%E8%80%85', icon: 'Activity', bg: 'bg-orange-50', color: 'text-orange-500' },
+                    { title: '階段昇降', desc: '下半身と心肺機能', type: 'reps', baseCount: 20, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E9%9A%8E%E6%AE%B5%E6%98%87%E9%99%8D+%E3%83%80%E3%82%A4%E3%82%A8%E3%83%83%E3%83%88', icon: 'PersonStanding', bg: 'bg-teal-50', color: 'text-teal-500' },
+                    { title: 'ダッシュ', desc: '瞬発力アップ', type: 'reps', baseCount: 3, unit: '本', videoUrl: 'https://www.youtube.com/results?search_query=%E3%83%80%E3%83%83%E3%82%B7%E3%83%A5+%E9%80%9F%E3%81%8F%E8%B5%B0%E3%82%8B%E6%96%B9%E6%B3%95', icon: 'Activity', bg: 'bg-red-50', color: 'text-red-500' },
+                ];
+
+                let baseList = [];
+                if (trainingLocation === '室内') {
+                    baseList = homeExercises;
+                } else if (trainingLocation === '屋外') {
+                    baseList = outExercises;
+                } else {
+                    baseList = [...homeExercises, ...outExercises];
+                }
+
+                const shuffled = [...baseList].sort(() => 0.5 - Math.random());
+                const selected = shuffled.slice(0, 3);
+                
+                const fixedTime = selected.reduce((sum, item) => sum + (item.fixedDuration || 0), 0);
+                const flexibleItemsCount = selected.filter(item => !item.fixedDuration).length;
+                let remainingTime = Math.max(flexibleItemsCount * 1, trainingTime - fixedTime);
+                
+                const timePerFlexible = flexibleItemsCount > 0 ? Math.floor(remainingTime / flexibleItemsCount) : 0;
+                const remainder = flexibleItemsCount > 0 ? remainingTime % flexibleItemsCount : 0;
+
+                let flexibleIndex = 0;
+                const updatedSelected = selected.map((item, index) => {
+                    let allocatedTime = 0;
+                    if (item.fixedDuration) {
+                        allocatedTime = item.fixedDuration;
+                    } else {
+                        allocatedTime = timePerFlexible + (flexibleIndex === 0 ? remainder : 0);
+                        flexibleIndex++;
+                    }
+                    
+                    let detailDesc = "";
+                    if (item.fixedDuration) {
+                        detailDesc = `${allocatedTime}分`;
+                    } else if (item.type === 'reps') {
+                        detailDesc = `${item.baseCount}${item.unit} × ${allocatedTime}セット`;
+                    } else {
+                        detailDesc = `自分のペースで ${allocatedTime}分`;
+                    }
+
+                    return {
+                        ...item,
+                        id: Date.now() + index,
+                        timeText: `${allocatedTime}分`,
+                        duration: allocatedTime,
+                        videoUrl: item.videoUrl,
+                        desc: `${detailDesc} (${item.desc})`
+                    };
+                });
+
+                setSuggestedMenu(updatedSelected);
+            };
+
+            const setAsTodaysMenu = () => {
+                const newMenu = suggestedMenu.map((item, idx) => ({
+                    id: Date.now() + idx,
+                    title: item.title,
+                    desc: item.desc,
+                    duration: item.duration,
+                    videoUrl: item.videoUrl,
+                    completed: false,
+                    icon: item.icon,
+                    iconBg: item.bg,
+                    iconColor: item.color
+                }));
+                setTodaysMenu(newMenu);
+                saveData({ todaysMenu: newMenu });
+                setActiveTab('home');
+            };
+
+            const toggleTask = (id) => {
+                const newMenu = todaysMenu.map(task => 
+                    task.id === id ? { ...task, completed: !task.completed } : task
+                );
+                setTodaysMenu(newMenu);
+                saveData({ todaysMenu: newMenu });
+            };
+
+            const completedCount = todaysMenu.filter(t => t.completed).length;
+            const totalCount = todaysMenu.length;
+
+            const getGreeting = () => {
+                const hour = new Date().getHours();
+                if (hour >= 5 && hour < 11) return 'おはようございます';
+                if (hour >= 11 && hour < 18) return 'こんにちは';
+                return 'こんばんは';
+            };
+
+            const getDailyMessage = () => {
+                const messages = [
+                    "今日も自分のペースで進もう！",
+                    "少しの継続が大きな力に。",
+                    "無理せず、楽しく体を動かそう。",
+                    "昨日の自分より一歩前へ！",
+                    "休むことも大切なトレーニング。",
+                    "深呼吸して、リラックスしよう。",
+                    "自分を褒める一日にしよう！",
+                    "小さな変化を楽しんでいこう。",
+                    "焦らず、ゆっくりと着実に。",
+                    "気分転換に少しだけ動こう。"
+                ];
+                const today = new Date();
+                const dateString = `${today.getFullYear()}${today.getMonth()}${today.getDate()}`;
+                let hash = 0;
+                for (let i = 0; i < dateString.length; i++) {
+                    hash = dateString.charCodeAt(i) + ((hash << 5) - hash);
+                }
+                return messages[Math.abs(hash) % messages.length];
+            };
+
+            const getDailyTip = () => {
+                const tips = [
+                    { title: "水分補給のタイミング", desc: "運動の30分前にはコップ1杯の水を飲みましょう。パフォーマンス低下を防ぎます。" },
+                    { title: "睡眠と筋肉の関係", desc: "筋肉は寝ている間に成長します。最低でも7時間の睡眠を心がけましょう。" },
+                    { title: "プロテインのゴールデンタイム", desc: "運動後30分以内は栄養の吸収率がアップ！効率よくタンパク質を補給しましょう。" },
+                    { title: "ストレッチの重要性", desc: "運動後のストレッチは筋肉の緊張をほぐし、翌日の疲労回復を早めます。" },
+                    { title: "正しい呼吸法", desc: "筋トレ中は「力を入れる時に息を吐き、戻す時に吸う」を意識すると効果的です。" },
+                    { title: "休養日も大切", desc: "毎日鍛えるより、筋肉を休ませて回復させる日を作ることで効率よく成長します。" },
+                    { title: "炭水化物もエネルギー源", desc: "タンパク質だけでなく、体を動かすエネルギー源となる炭水化物もバランス良く摂りましょう。" }
+                ];
+                const today = new Date();
+                const dateString = `${today.getFullYear()}${today.getMonth()}${today.getDate()}`;
+                let hash = 0;
+                for (let i = 0; i < dateString.length; i++) {
+                    hash = dateString.charCodeAt(i) + ((hash << 5) - hash);
+                }
+                return tips[Math.abs(hash) % tips.length];
+            };
+
+            // 設定メニュー用の項目コンポーネント
+            const SettingItem = ({ iconName, title, iconBg, iconColor, hasBorder = true, onClick }) => (
+                <div onClick={onClick} className={`flex items-center p-4 ${hasBorder ? 'border-b border-gray-50' : ''} bg-white active:bg-slate-50 transition-colors cursor-pointer`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center mr-4 shrink-0 ${iconBg} ${iconColor}`}>
+                        <Icon name={iconName} size={18} />
+                    </div>
+                    <div className="flex-1 font-bold text-[15px] text-slate-700">
+                        {title}
+                    </div>
+                    <Icon name="ChevronRight" size={20} className="text-gray-300 shrink-0" />
+                </div>
+            );
+
+            // 設定メニュー用の選択式コンポーネント
+            const SettingSelect = ({ iconName, title, value, options, onChange, iconBg, iconColor, hasBorder = true }) => (
+                <div className={`flex items-center p-4 ${hasBorder ? 'border-b border-gray-50' : ''} bg-white relative hover:bg-slate-50 transition-colors`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center mr-4 shrink-0 ${iconBg} ${iconColor}`}>
+                        <Icon name={iconName} size={18} />
+                    </div>
+                    <div className="flex-1 font-bold text-[15px] text-slate-700">
+                        {title}
+                    </div>
+                    <div className="flex items-center pointer-events-none">
+                        <span className="text-slate-500 text-sm mr-2">{value}</span>
+                        <Icon name="ChevronRight" size={20} className="text-gray-300 shrink-0" />
+                    </div>
+                    <select 
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none"
+                    >
+                        {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                </div>
+            );
+
+            const getDaysInMonth = (date) => {
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const firstDay = new Date(year, month, 1);
+                const lastDay = new Date(year, month + 1, 0);
+                const days = [];
+                for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
+                for (let i = 1; i <= lastDay.getDate(); i++) days.push(new Date(year, month, i));
+                return days;
+            };
+
+            const getDaysInWeek = (date) => {
+                const days = [];
+                const current = new Date(date);
+                current.setDate(current.getDate() - current.getDay());
+                for (let i = 0; i < 7; i++) {
+                    days.push(new Date(current));
+                    current.setDate(current.getDate() + 1);
+                }
+                return days;
+            };
+
+            const formatDateString = (date) => {
+                if (!date) return '';
+                return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            };
+
+            const shiftCalendar = (direction) => {
+                const newDate = new Date(currentCalendarDate);
+                if (calendarView === 'month') {
+                    newDate.setMonth(newDate.getMonth() + direction);
+                } else {
+                    newDate.setDate(newDate.getDate() + direction * 7);
+                }
+                setCurrentCalendarDate(newDate);
+            };
+
+            const renderTotalTime = (totalMinutes) => {
+                if (totalMinutes < 60) {
+                    return (
+                        <p className="text-2xl font-bold text-yellow-400 flex items-baseline">
+                            {totalMinutes}<span className="text-[10px] font-medium ml-0.5">分</span>
+                        </p>
+                    );
+                } else if (totalMinutes < 1440) {
+                    const hours = Math.floor(totalMinutes / 60);
+                    const mins = totalMinutes % 60;
+                    return (
+                        <p className="text-lg font-bold text-yellow-400 flex items-baseline whitespace-nowrap tracking-tight">
+                            {hours}<span className="text-[9px] font-medium mx-0.5">時間</span>
+                            {mins > 0 && <>{mins}<span className="text-[9px] font-medium ml-0.5">分</span></>}
+                        </p>
+                    );
+                } else {
+                    const days = Math.floor(totalMinutes / 1440);
+                    const hours = Math.floor((totalMinutes % 1440) / 60);
+                    return (
+                        <p className="text-lg font-bold text-yellow-400 flex items-baseline whitespace-nowrap tracking-tight">
+                            {days}<span className="text-[9px] font-medium mx-0.5">日</span>
+                            {hours > 0 && <>{hours}<span className="text-[9px] font-medium ml-0.5">時間</span></>}
+                        </p>
+                    );
+                }
+            };
+
+            const CircleProgress = ({ value, max, size = 'md' }) => {
+                const radius = size === 'sm' ? 15 : 22; 
+                const circumference = 2 * Math.PI * radius;
+                const safeMax = Math.max(max, 1);
+                const safeValue = value || 0;
+                const strokeDashoffset = circumference - (Math.min(safeValue, safeMax) / safeMax) * circumference;
+                const viewBoxSize = size === 'sm' ? 40 : 56;
+                const center = viewBoxSize / 2;
+                
+                return (
+                    <div className={`relative flex items-center justify-center ${size === 'sm' ? 'w-10 h-10' : 'w-14 h-14'}`}>
+                        <svg className="w-full h-full transform -rotate-90" viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`}>
+                            <circle cx={center} cy={center} r={radius} stroke="currentColor" strokeWidth={size === 'sm' ? '3' : '4'} fill="transparent" className="text-gray-100" />
+                            <circle 
+                                cx={center} 
+                                cy={center} 
+                                r={radius} 
+                                stroke="currentColor" 
+                                strokeWidth={size === 'sm' ? '3' : '4'} 
+                                fill="transparent" 
+                                strokeDasharray={circumference} 
+                                strokeDashoffset={isNaN(strokeDashoffset) ? circumference : strokeDashoffset} 
+                                className="text-teal-500 transition-all duration-500 ease-out" 
+                                strokeLinecap="round"
+                            />
+                        </svg>
+                        <span className={`absolute font-bold text-slate-700 ${size === 'sm' ? 'text-[10px]' : 'text-sm'}`}>{value}/{max}</span>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-gradient-to-b from-teal-50/30 to-white text-slate-800 font-sans">
+                    
+                    <main className="flex-1 overflow-y-auto pb-24">
+                        
+                        {activeTab === 'home' && (
+                            <div className="animate-in fade-in duration-300">
+                                <div className="pt-10 px-6 pb-4">
+                                    <h1 className="text-xl font-bold text-slate-800 mb-1">
+                                        {getGreeting()}、{userName}さん！
+                                    </h1>
+                                    <p className="text-sm text-slate-600">
+                                        今日も、無理せず再起動（Re:boot）しましょう。
+                                    </p>
+                                </div>
+
+                                <div className="px-5">
+                                    <div className="relative mt-2">
+                                        <div className="bg-[#e6f5f4] rounded-3xl p-6 pb-14 relative overflow-hidden">
+                                            <h2 className="text-base font-bold text-slate-800 leading-snug relative z-10 truncate">
+                                                {getDailyMessage()}
+                                            </h2>
+                                            <div className="absolute right-2 bottom-6 text-7xl opacity-90 select-none">
+                                                🤸‍♂️
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] mx-4 -mt-10 relative z-10 flex divide-x divide-gray-100 p-3 h-24">
+                                            <div className="flex-1 flex flex-col items-center justify-center px-1">
+                                                <p className="text-[8px] sm:text-[9px] font-bold text-slate-500 mb-1.5 flex items-center gap-0.5 tracking-tighter">
+                                                    100％達成日数 <span>🏅</span>
+                                                </p>
+                                                <div className="h-10 flex items-center justify-center">
+                                                    <p className="text-2xl font-bold text-orange-400 flex items-baseline">
+                                                        {streak}<span className="text-[10px] font-medium ml-0.5">日</span>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 flex flex-col items-center justify-center px-1">
+                                                <p className="text-[9px] font-bold text-slate-500 mb-1.5 flex items-center gap-0.5">
+                                                    累計時間 <span>🏆</span>
+                                                </p>
+                                                <div className="h-10 flex items-center justify-center">
+                                                    {renderTotalTime(totalTrainingTime)}
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 flex flex-col items-center justify-center px-1">
+                                                <p className="text-[9px] font-bold text-slate-500 mb-1.5">今日の達成度</p>
+                                                <div className="h-10 flex items-center justify-center">
+                                                    <CircleProgress value={completedCount} max={totalCount} size="sm" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-8">
+                                        <h3 className="font-bold text-slate-800 mb-3 px-1">今日のメニュー</h3>
+                                        <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden border border-gray-50/50">
+                                            {todaysMenu.map((item, index) => (
+                                                <div 
+                                                    key={item.id} 
+                                                    className={`flex items-center p-4 border-b border-gray-50 last:border-0 transition-colors cursor-pointer ${item.completed ? 'bg-teal-100' : 'bg-white'}`}
+                                                    onClick={() => toggleTask(item.id)}
+                                                >
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0 ${item.iconBg} ${item.iconColor}`}>
+                                                        <Icon name={item.icon} size={20} />
+                                                    </div>
+                                                    <div className="flex-1 pr-4">
+                                                        <h4 className={`font-bold text-[15px] mb-0.5 transition-colors flex items-center gap-2 ${item.completed ? 'text-teal-900' : 'text-slate-800'}`}>
+                                                            {item.title}
+                                                            {item.videoUrl && (
+                                                                <a 
+                                                                    href={item.videoUrl} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer" 
+                                                                    onClick={(e) => e.stopPropagation()} 
+                                                                    className={`active:scale-95 transition-colors ${item.completed ? 'text-teal-600 hover:text-teal-700' : 'text-red-500 hover:text-red-600'}`}
+                                                                    title="動画を見る"
+                                                                >
+                                                                    <Icon name="PlayCircle" size={18} />
+                                                                </a>
+                                                            )}
+                                                        </h4>
+                                                        <p className={`text-xs transition-colors ${item.completed ? 'text-teal-700' : 'text-slate-500'}`}>{item.desc}</p>
+                                                    </div>
+                                                    <button 
+                                                        className="shrink-0 transition-transform active:scale-90 flex items-center justify-center"
+                                                        aria-label={item.completed ? "未完了にする" : "完了にする"}
+                                                    >
+                                                        {item.completed ? (
+                                                            <div className="relative w-[26px] h-[26px]">
+                                                                <Icon name="Circle" className="text-blue-500 absolute top-0 left-0" size={26} />
+                                                                <Icon name="CheckCircle2" className="text-white absolute top-0 left-0" size={26} />
+                                                            </div>
+                                                        ) : (
+                                                            <Icon name="Circle" className="text-gray-300" size={26} />
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {todaysMenu.length === 0 && (
+                                                <div className="p-6 text-center text-slate-400 text-sm">
+                                                    メニューがありません。設定から生成してみましょう！
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <button 
+                                        onClick={handleCompleteDaily}
+                                        disabled={lastCompletedDate === new Date().toDateString() && completedCount === totalCount}
+                                        className={`w-full font-bold py-4 rounded-full shadow-lg transition-all active:scale-[0.98] mt-6 text-lg
+                                            ${completedCount > 0 && completedCount === totalCount 
+                                                ? (lastCompletedDate === new Date().toDateString() 
+                                                    ? 'bg-slate-300 text-white shadow-none cursor-default' 
+                                                    : 'bg-gradient-to-r from-orange-400 to-orange-500 text-white shadow-orange-500/25')
+                                                : 'bg-orange-300 text-white/90 shadow-orange-300/20'}`}
+                                    >
+                                        {lastCompletedDate === new Date().toDateString() && completedCount === totalCount 
+                                            ? '本日の目標達成！' 
+                                            : '完了！'}
+                                    </button>
+
+                                    <div className="mt-5 px-2 pb-6">
+                                        <p className="text-[11px] font-bold text-slate-800 mb-1 flex items-center gap-1">
+                                            💡 今日の豆知識：{getDailyTip().title}
+                                        </p>
+                                        <p className="text-xs text-slate-600 leading-relaxed">{getDailyTip().desc}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'menu' && (
+                            <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
+                                <h2 className="text-xl font-bold text-slate-800 mb-6 px-1">メニュー生成</h2>
+                                
+                                <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50 p-5 mb-6">
+                                    <div className="mb-5">
+                                        <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                            <Icon name="Clock" size={16} className="text-teal-500" />
+                                            トレーニング時間
+                                        </label>
+                                        <div className="relative">
+                                            <select 
+                                                value={trainingTime}
+                                                onChange={(e) => setTrainingTime(Number(e.target.value))}
+                                                className="w-full bg-slate-50 border border-gray-100 rounded-xl px-4 py-3 text-slate-800 font-bold appearance-none outline-none focus:ring-2 focus:ring-teal-500/50"
+                                            >
+                                                {[5, 10, 15, 20, 25, 30, 45, 60].map(t => (
+                                                    <option key={t} value={t}>{t} 分</option>
+                                                ))}
+                                            </select>
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90 pointer-events-none">
+                                                <Icon name="ChevronRight" size={20} />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                            <Icon name="MapPin" size={16} className="text-orange-500" />
+                                            トレーニング場所
+                                        </label>
+                                        <div className="flex bg-slate-50 p-1 rounded-xl">
+                                            <button 
+                                                onClick={() => setTrainingLocation('室内')}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${trainingLocation === '室内' ? 'bg-white text-teal-600 shadow-[0_1px_3px_rgba(0,0,0,0.05)]' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                🏠 室内
+                                            </button>
+                                            <button 
+                                                onClick={() => setTrainingLocation('屋外')}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${trainingLocation === '屋外' ? 'bg-white text-teal-600 shadow-[0_1px_3px_rgba(0,0,0,0.05)]' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                🌳 屋外
+                                            </button>
+                                            <button 
+                                                onClick={() => setTrainingLocation('室内と屋外')}
+                                                className={`flex-1 py-2 text-[10px] sm:text-xs font-bold rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 ${trainingLocation === '室内と屋外' ? 'bg-white text-teal-600 shadow-[0_1px_3px_rgba(0,0,0,0.05)]' : 'text-slate-500 hover:text-slate-700'}`}
+                                            >
+                                                <span>🏠🌳</span><span>室内と屋外</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button 
+                                    onClick={handleGenerateMenu}
+                                    className="w-full font-bold py-4 rounded-full bg-gradient-to-r from-teal-400 to-teal-500 text-white shadow-lg shadow-teal-500/25 transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-8"
+                                >
+                                    <Icon name="Sparkles" size={20} />
+                                    最適メニューを提案
+                                </button>
+
+                                {suggestedMenu.length > 0 && (
+                                    <div className="animate-in slide-in-from-bottom-4 fade-in duration-500">
+                                        <h3 className="font-bold text-slate-800 mb-3 px-1 flex items-center justify-between">
+                                            <span>あなたへの提案</span>
+                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                                                {age} / {bodyType} / {exerciseHabit} 向け
+                                            </span>
+                                        </h3>
+                                        <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden border border-gray-50/50">
+                                            {suggestedMenu.map((item) => (
+                                                <div key={item.id} className="flex items-center p-4 border-b border-gray-50 last:border-0">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0 ${item.bg} ${item.color}`}>
+                                                        <Icon name={item.icon} size={20} />
+                                                    </div>
+                                                    <div className="flex-1 pr-4">
+                                                        <h4 className="font-bold text-[15px] text-slate-800 mb-0.5 flex items-center gap-2">
+                                                            {item.title}
+                                                            {item.videoUrl && (
+                                                                <a 
+                                                                    href={item.videoUrl} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer" 
+                                                                    onClick={(e) => e.stopPropagation()} 
+                                                                    className="text-red-500 hover:text-red-600 active:scale-95"
+                                                                    title="動画を見る"
+                                                                >
+                                                                    <Icon name="PlayCircle" size={16} />
+                                                                </a>
+                                                            )}
+                                                        </h4>
+                                                        <p className="text-xs text-slate-500">{item.desc}</p>
+                                                    </div>
+                                                    <div className="shrink-0 text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-full">
+                                                        {item.timeText}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button 
+                                            onClick={setAsTodaysMenu}
+                                            className="w-full font-bold py-4 rounded-full bg-slate-800 text-white shadow-lg transition-all active:scale-[0.98] mt-6"
+                                        >
+                                            このメニューを今日やる
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'settings' && (
+                            <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
+                                <h2 className="text-xl font-bold text-slate-800 mb-6 px-1">設定</h2>
+                                
+                                <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50 p-5 mb-8 flex items-center">
+                                    <div className="w-14 h-14 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 mr-4 shrink-0">
+                                        <Icon name="User" size={28} />
+                                    </div>
+                                    <div className="flex-1 mr-4">
+                                        {isEditingName ? (
+                                            <input 
+                                                type="text" 
+                                                value={userName}
+                                                onChange={(e) => setUserName(e.target.value)}
+                                                className="font-bold text-lg text-slate-800 w-full bg-gray-50 border border-teal-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-teal-500"
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <h3 className="font-bold text-lg text-slate-800 truncate">{userName} さん</h3>
+                                        )}
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            if (isEditingName) {
+                                                handleNameSave();
+                                            } else {
+                                                setIsEditingName(true);
+                                            }
+                                        }}
+                                        className="text-sm font-bold text-teal-600 bg-teal-50 px-4 py-2 rounded-full active:bg-teal-100 transition-colors shrink-0"
+                                    >
+                                        {isEditingName ? '保存' : '編集'}
+                                    </button>
+                                </div>
+
+                                <h3 className="font-bold text-slate-800 mb-3 px-2 text-sm">プロフィール設定</h3>
+                                <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden border border-gray-50/50 mb-8">
+                                    <SettingSelect 
+                                        iconName="Users" title="性別" value={gender} onChange={handleGenderChange}
+                                        options={['男性', '女性', 'その他', '回答しない']}
+                                        iconBg="bg-blue-50" iconColor="text-blue-500" 
+                                    />
+                                    <SettingSelect 
+                                        iconName="Calendar" title="年齢" value={age} onChange={handleAgeChange}
+                                        options={['10代', '20代', '30代', '40代', '50代', '60代以上']}
+                                        iconBg="bg-orange-50" iconColor="text-orange-500" 
+                                    />
+                                    <SettingSelect 
+                                        iconName="PersonStanding" title="体型" value={bodyType} onChange={handleBodyTypeChange}
+                                        options={['痩せ型', '普通', 'ぽっちゃり', '筋肉質']}
+                                        iconBg="bg-teal-50" iconColor="text-teal-500" 
+                                    />
+                                    <SettingSelect 
+                                        iconName="Dumbbell" title="運動習慣" value={exerciseHabit} onChange={handleExerciseHabitChange}
+                                        options={['週0回', '週1〜2回', '週3〜4回', '週5回以上']}
+                                        iconBg="bg-purple-50" iconColor="text-purple-500" 
+                                        hasBorder={false}
+                                    />
+                                </div>
+
+                                <h3 className="font-bold text-slate-800 mb-3 px-2 text-sm">サポート</h3>
+                                <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden border border-gray-50/50 mb-8">
+                                    <SettingItem onClick={() => setActiveTab('faq')} iconName="HelpCircle" title="よくある質問" iconBg="bg-gray-100" iconColor="text-gray-600" />
+                                    <SettingItem onClick={() => setActiveTab('about')} iconName="Info" title="アプリについて" iconBg="bg-gray-100" iconColor="text-gray-600" hasBorder={false} />
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'faq' && (
+                            <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
+                                <div className="flex items-center mb-6">
+                                    <button onClick={() => setActiveTab('settings')} className="mr-3 p-2 bg-white rounded-full shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] active:scale-95 transition-all text-slate-600">
+                                        <Icon name="ChevronLeft" size={20} />
+                                    </button>
+                                    <h2 className="text-xl font-bold text-slate-800 px-1">よくある質問</h2>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="bg-white rounded-3xl p-5 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50">
+                                        <h3 className="font-bold text-slate-800 mb-2 flex items-start gap-2">
+                                            <span className="text-teal-500">Q.</span>メニューはどうやって選ばれますか？
+                                        </h3>
+                                        <div className="h-px w-full bg-gray-50 my-3"></div>
+                                        <p className="text-sm text-slate-600 leading-relaxed flex items-start gap-2">
+                                            <span className="text-orange-400 font-bold">A.</span>
+                                            <span>プロフィールで設定した「年齢」「体型」「運動習慣」と、メニュー生成時に指定した「時間」「場所」を元に、最適なトレーニングを組み合わせて提案します。</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-white rounded-3xl p-5 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50">
+                                        <h3 className="font-bold text-slate-800 mb-2 flex items-start gap-2">
+                                            <span className="text-teal-500">Q.</span>機種変更したらデータは引き継げますか？
+                                        </h3>
+                                        <div className="h-px w-full bg-gray-50 my-3"></div>
+                                        <p className="text-sm text-slate-600 leading-relaxed flex items-start gap-2">
+                                            <span className="text-orange-400 font-bold">A.</span>
+                                            <span>クラウド上に自動で保存されているため、ブラウザを変更しても同じ認証情報でアクセスすればデータは引き継がれます。</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-white rounded-3xl p-5 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50">
+                                        <h3 className="font-bold text-slate-800 mb-2 flex items-start gap-2">
+                                            <span className="text-teal-500">Q.</span>動画が見られません。
+                                        </h3>
+                                        <div className="h-px w-full bg-gray-50 my-3"></div>
+                                        <p className="text-sm text-slate-600 leading-relaxed flex items-start gap-2">
+                                            <span className="text-orange-400 font-bold">A.</span>
+                                            <span>インターネット接続を確認してください。また、YouTubeの仕様変更により動画が見られない場合は、お手数ですがブラウザから直接検索してお試しください。</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'about' && (
+                            <div className="animate-in fade-in duration-300 pt-10 px-5 pb-6">
+                                <div className="flex items-center mb-6">
+                                    <button onClick={() => setActiveTab('settings')} className="mr-3 p-2 bg-white rounded-full shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] active:scale-95 transition-all text-slate-600">
+                                        <Icon name="ChevronLeft" size={20} />
+                                    </button>
+                                    <h2 className="text-xl font-bold text-slate-800 px-1">アプリについて</h2>
+                                </div>
+                                <div className="bg-white rounded-3xl p-8 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-50/50 text-center flex flex-col items-center">
+                                    <div className="w-20 h-20 bg-teal-50 rounded-full flex items-center justify-center text-teal-500 mb-4 shadow-inner">
+                                        <Icon name="Activity" size={40} />
+                                    </div>
+                                    <h3 className="text-2xl font-bold text-slate-800 mb-1 tracking-tight">Re:boot Fit</h3>
+                                    <p className="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1 rounded-full mb-8">
+                                        バージョン 1.0.0
+                                    </p>
+                                    
+                                    <p className="text-sm text-slate-600 leading-relaxed text-left mb-8">
+                                        Re:boot Fit は、昔、運動していた頃の自分を思い出し、もう一度心と体を「再起動（Re:boot）」するためのアプリです。<br/><br/>
+                                        あの頃のように無理をする必要はありません。毎日少しずつ、今の自分のペースで体を動かすことで、新しいスタートを切りましょう！
+                                    </p>
+                                    
+                                    <div className="w-full h-px bg-gray-100 mb-6"></div>
+                                    
+                                    <p className="text-[10px] text-slate-400">© 2026 Re:boot Fit Project.<br/>All rights reserved.</p>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <nav className="bg-white border-t border-gray-100 fixed bottom-0 w-full max-w-md pb-safe">
+                        <div className="flex justify-around items-center px-2 py-1.5">
+                            <button 
+                                onClick={() => setActiveTab('home')}
+                                className={`flex flex-col items-center p-2 w-16 transition-colors ${activeTab === 'home' ? 'text-teal-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                                <Icon name="Home" size={22} strokeWidth={activeTab === 'home' ? 2.5 : 2} className="mb-1" />
+                                <span className="text-[9px] font-bold">ホーム</span>
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('menu')}
+                                className={`flex flex-col items-center p-2 w-16 transition-colors ${activeTab === 'menu' ? 'text-teal-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                                <Icon name="RefreshCw" size={22} strokeWidth={activeTab === 'menu' ? 2.5 : 2} className="mb-1" />
+                                <span className="text-[9px] font-bold">メニュー</span>
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('record')}
+                                className={`flex flex-col items-center p-2 w-16 transition-colors ${activeTab === 'record' ? 'text-teal-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                                <Icon name="ClipboardCheck" size={22} strokeWidth={activeTab === 'record' ? 2.5 : 2} className="mb-1" />
+                                <span className="text-[9px] font-bold">記録</span>
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('settings')}
+                                className={`flex flex-col items-center p-2 w-16 transition-colors ${activeTab === 'settings' || activeTab === 'faq' || activeTab === 'about' ? 'text-teal-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                                <Icon name="Settings" size={22} strokeWidth={activeTab === 'settings' || activeTab === 'faq' || activeTab === 'about' ? 2.5 : 2} className="mb-1" />
+                                <span className="text-[9px] font-bold">設定</span>
+                            </button>
+                        </div>
+                    </nav>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
