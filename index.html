@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -29,7 +30,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useMemo } = React;
 
         // Firebase ESM Imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -161,11 +162,11 @@
                         // ドキュメントが存在しない（初回起動時）は設定タブへ案内
                         setActiveTab('settings');
                         
-                        // 初期メニューを作成して保存
+                        // 初期メニューを作成して保存（時間付きの動的検索リンクを適用）
                         const defaultMenu = [
                             { id: 1, title: 'ラジオ体操（第1）', desc: '4分 (全身の準備運動)', duration: 4, videoUrl: 'https://youtu.be/SGPBSqxKGAc?si=6Y0pUTFkz26dNTWd', completed: false, icon: 'Activity', iconBg: 'bg-green-50', iconColor: 'text-green-500' },
-                            { id: 2, title: '壁腕立て伏せ', desc: '5回×3セット (3分)', duration: 3, videoUrl: 'https://www.youtube.com/results?search_query=%E5%A3%81%E8%85%95%E7%AB%8B%E3%81%A6%E4%BC%8F%E3%81%9B+%E3%82%84%E3%82%8A%E6%96%B9', completed: false, icon: 'PersonStanding', iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
-                            { id: 3, title: 'ストレッチ', desc: '柔軟性アップ 5分', duration: 5, videoUrl: 'https://www.youtube.com/results?search_query=%E5%85%A8%E8%BA%AB%E3%82%B9%E3%83%88%E3%83%AC%E3%83%83%E3%83%81', completed: false, icon: 'PersonStanding', iconBg: 'bg-purple-50', iconColor: 'text-purple-500' }
+                            { id: 2, title: '壁腕立て伏せ', desc: '5回×3セット (3分)', duration: 3, videoUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent('壁腕立て伏せ 3分')}`, completed: false, icon: 'PersonStanding', iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+                            { id: 3, title: 'ストレッチ', desc: '柔軟性アップ 5分', duration: 5, videoUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent('ストレッチ 5分')}`, completed: false, icon: 'PersonStanding', iconBg: 'bg-purple-50', iconColor: 'text-purple-500' }
                         ];
                         setTodaysMenu(defaultMenu);
                         saveData({ 
@@ -281,19 +282,20 @@
 
             // メニューを生成するロジック
             const handleGenerateMenu = () => {
+                // fixedVideoUrl があるものは固定リンク、無いものは時間に応じた検索リンクを生成
                 const homeExercises = [
-                    { title: 'スクワット', desc: '下半身の強化', type: 'reps', baseCount: 15, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%B9%E3%82%AF%E3%83%AF%E3%83%83%E3%83%88+%E6%AD%A3%E3%81%97%E3%81%84%E3%82%84%E3%82%8A%E6%96%B9', icon: 'PersonStanding', bg: 'bg-orange-50', color: 'text-orange-500' },
-                    { title: 'プランク', desc: '体幹トレーニング', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%83%97%E3%83%A9%E3%83%B3%E3%82%AF+%E6%AD%A3%E3%81%97%E3%81%84%E3%82%84%E3%82%8A%E6%96%B9', icon: 'Activity', bg: 'bg-teal-50', color: 'text-teal-500' },
-                    { title: '壁腕立て伏せ', desc: '上半身の強化', type: 'reps', baseCount: 10, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E5%A3%81%E8%85%95%E7%AB%8B%E3%81%A6%E4%BC%8F%E3%81%9B+%E3%82%84%E3%82%8A%E6%96%B9', icon: 'PersonStanding', bg: 'bg-blue-50', color: 'text-blue-500' },
-                    { title: 'ラジオ体操', desc: '全身の準備運動', type: 'time', fixedDuration: 4, videoUrl: 'https://youtu.be/SGPBSqxKGAc?si=6Y0pUTFkz26dNTWd', icon: 'Activity', bg: 'bg-green-50', color: 'text-green-500' },
-                    { title: 'ストレッチ', desc: '柔軟性アップ', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E5%85%A8%E8%BA%AB%E3%82%B9%E3%83%88%E3%83%AC%E3%83%83%E3%83%81', icon: 'PersonStanding', bg: 'bg-purple-50', color: 'text-purple-500' },
+                    { title: 'スクワット', desc: '下半身の強化', type: 'reps', baseCount: 15, unit: '回', icon: 'PersonStanding', bg: 'bg-orange-50', color: 'text-orange-500' },
+                    { title: 'プランク', desc: '体幹トレーニング', type: 'time', icon: 'Activity', bg: 'bg-teal-50', color: 'text-teal-500' },
+                    { title: '壁腕立て伏せ', desc: '上半身の強化', type: 'reps', baseCount: 10, unit: '回', icon: 'PersonStanding', bg: 'bg-blue-50', color: 'text-blue-500' },
+                    { title: 'ラジオ体操', desc: '全身の準備運動', type: 'time', fixedDuration: 4, fixedVideoUrl: 'https://youtu.be/SGPBSqxKGAc?si=6Y0pUTFkz26dNTWd', icon: 'Activity', bg: 'bg-green-50', color: 'text-green-500' },
+                    { title: 'ストレッチ', desc: '柔軟性アップ', type: 'time', icon: 'PersonStanding', bg: 'bg-purple-50', color: 'text-purple-500' },
                 ];
                 
                 const outExercises = [
-                    { title: 'ウォーキング', desc: '有酸素運動', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%A6%E3%82%A9%E3%83%BC%E3%82%AD%E3%83%B3%E3%82%B0+%E3%83%95%E3%82%A9%E3%83%BC%E3%83%A0', icon: 'Activity', bg: 'bg-blue-50', color: 'text-blue-500' },
-                    { title: 'ジョギング', desc: '脂肪燃焼', type: 'time', videoUrl: 'https://www.youtube.com/results?search_query=%E3%82%B8%E3%83%A7%E3%82%AE%E3%83%B3%E3%82%B0+%E5%88%9D%E5%BF%83%E8%80%85', icon: 'Activity', bg: 'bg-orange-50', color: 'text-orange-500' },
-                    { title: '階段昇降', desc: '下半身と心肺機能', type: 'reps', baseCount: 20, unit: '回', videoUrl: 'https://www.youtube.com/results?search_query=%E9%9A%8E%E6%AE%B5%E6%98%87%E9%99%8D+%E3%83%80%E3%82%A4%E3%82%A8%E3%83%83%E3%83%88', icon: 'PersonStanding', bg: 'bg-teal-50', color: 'text-teal-500' },
-                    { title: 'ダッシュ', desc: '瞬発力アップ', type: 'reps', baseCount: 3, unit: '本', videoUrl: 'https://www.youtube.com/results?search_query=%E3%83%80%E3%83%83%E3%82%B7%E3%83%A5+%E9%80%9F%E3%81%8F%E8%B5%B0%E3%82%8B%E6%96%B9%E6%B3%95', icon: 'Activity', bg: 'bg-red-50', color: 'text-red-500' },
+                    { title: 'ウォーキング', desc: '有酸素運動', type: 'time', icon: 'Activity', bg: 'bg-blue-50', color: 'text-blue-500' },
+                    { title: 'ジョギング', desc: '脂肪燃焼', type: 'time', icon: 'Activity', bg: 'bg-orange-50', color: 'text-orange-500' },
+                    { title: '階段昇降', desc: '下半身と心肺機能', type: 'reps', baseCount: 20, unit: '回', icon: 'PersonStanding', bg: 'bg-teal-50', color: 'text-teal-500' },
+                    { title: 'ダッシュ', desc: '瞬発力アップ', type: 'reps', baseCount: 3, unit: '本', icon: 'Activity', bg: 'bg-red-50', color: 'text-red-500' },
                 ];
 
                 let baseList = [];
@@ -334,12 +336,17 @@
                         detailDesc = `自分のペースで ${allocatedTime}分`;
                     }
 
+                    // 時間（duration）を用いた検索リンクの動的生成
+                    const videoUrl = item.fixedVideoUrl 
+                        ? item.fixedVideoUrl 
+                        : `https://www.youtube.com/results?search_query=${encodeURIComponent(item.title + ' ' + allocatedTime + '分')}`;
+
                     return {
                         ...item,
                         id: Date.now() + index,
                         timeText: `${allocatedTime}分`,
                         duration: allocatedTime,
-                        videoUrl: item.videoUrl,
+                        videoUrl: videoUrl,
                         desc: `${detailDesc} (${item.desc})`
                     };
                 });
@@ -988,8 +995,8 @@
                                                         <div className="shrink-0 text-teal-500">
                                                             {item.completed ? (
                                                                 <div className="relative w-[22px] h-[22px]">
-                                                                    <Icon name="Circle" className="text-blue-500 fill-blue-500 absolute top-0 left-0" size={22} />
-                                                                    <Icon name="CheckCircle2" className="text-white absolute top-0 left-0" size={22} />
+                                                                    <Icon name="Circle" className="text-blue-500 absolute top-0 left-0" size={22} />
+                                                                    <Icon name="CheckCircle2" className="text-white relative" size={22} />
                                                                 </div>
                                                             ) : (
                                                                 <Icon name="Circle" size={22} className="text-gray-300" />
@@ -1191,3 +1198,6 @@
     </script>
 </body>
 </html>
+
+
+```
